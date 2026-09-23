@@ -34,8 +34,10 @@ def main():
         raise ValueError("IDs must be unique and classes must be 1..5")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     cache_path = args.output_dir / "features.joblib"
+    audio_root_key = str(args.audio_root.resolve())
     if cache_path.exists():
-        cache = joblib.load(cache_path)
+        cached = joblib.load(cache_path)
+        cache = cached["features"] if isinstance(cached, dict) and cached.get("audio_root") == audio_root_key else {}
     else:
         cache = {}
     features = []
@@ -43,7 +45,7 @@ def main():
         if subject_id not in cache:
             cache[subject_id] = subject_features(args.audio_root, subject_id)
             if index % 25 == 0:
-                joblib.dump(cache, cache_path)
+                joblib.dump({"audio_root": audio_root_key, "features": cache}, cache_path)
         features.append(cache[subject_id])
     joblib.dump(cache, cache_path)
     x = np.stack(features)
