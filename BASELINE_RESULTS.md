@@ -16,7 +16,7 @@
  [0, 0, 2, 0, 15]]
 ```
 
-复现时按 [README](README.md) 设置自己的 `DATA_ROOT` 和 `RUN_ROOT`，运行训练命令后在 `$RUN_ROOT/retrained/validation_metrics.json` 查看本机成绩。数据版本、依赖版本和随机种子应保持一致。
+复现流程见 [README](README.md)：`DATA_ROOT` 指向课程平台提供的数据挂载点，`RUN_ROOT` 指向可写工作目录。运行训练命令后，验证成绩位于 `$RUN_ROOT/retrained/validation_metrics.json`。比较时应保持数据版本、依赖版本和随机种子一致。
 
 随仓库附带的课程最终权重 `models/final_model.joblib` 用全部 219 名训练受试者拟合，因此与这 44 名公开验证受试者存在交叉。它可用于后续盲测，但不能用来产生上表的公平验证成绩。上表使用的是只在 175 名基线训练受试者上拟合的验证模型。
 
