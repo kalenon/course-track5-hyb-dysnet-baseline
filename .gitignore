@@ -2,4 +2,5 @@ data/
 runs/
 checkpoints/
 *.joblib
+!models/*.joblib
 __pycache__/

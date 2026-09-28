@@ -1,10 +1,16 @@
-# 语音信号处理大作业 Track 5：构音障碍严重程度基线
+# 语音信号处理大作业 Track 5：构音障碍严重程度评估基线
 
-赛题要求见 [大作业 Track 5 Markdown](docs/大作业%20track%205.md)；本 README 给出可运行的参考方法、训练、验证与盲测接口。
+本项目提供 Hyb-DysNet 结构的参考系统、**使用课程训练数据重新训练的基线权重**、复现脚本，以及验证与盲测提交接口。赛题规则见 [大作业 Track 5](docs/大作业%20track%205.md)。这是课程中的语音算法练习，不用于医疗诊断。
 
-本仓库按八条 8 kHz 录音预测一个受试者级五分类结果。每条录音提取固定的对数频谱统计量、能量和过零率，串接八条录音后用带类别平衡权重的随机森林分类。它只依赖公开训练数据，不需要外部预训练权重。
+## 方法概览
 
-## 安装
+对每名受试者的八条录音分别提取 OpenSMILE eGeMAPSv02 和冻结的 XLSR-53 语音表征；经标准化后，用 XGBoost、LightGBM 和逻辑回归做加权软投票。八条录音各产生一个类别，再以多数投票得到受试者级的 1–5 类预测。模型使用 16 kHz、最长 5 秒的音频进行深度特征提取；课程提供的 8 kHz WAV 由脚本自动重采样。
+
+随仓库提供的课程重训权重使用 337 维输入：88 维 OpenSMILE 特征和 249 维 XLSR 时序特征。特征实现与该权重保持一致。年龄、性别只用于保留元数据接口，不参与此参考系统。模型训练时只使用训练受试者标签。
+
+## 环境与资源挂载
+
+在课程平台上选择 GPU，并挂载训练数据。建议使用 Python 3.10；若平台已有兼容环境，可直接使用。PyTorch 与 torchaudio 需版本匹配、支持所分配 GPU 的 CUDA 环境。进入本仓库根目录后安装依赖：
 
 ```bash
 conda create -n ssp-track5 python=3.10 -y
@@ -12,50 +18,95 @@ conda activate ssp-track5
 pip install -r requirements.txt
 ```
 
-## 下载与放置数据
-
-从课程平台下载训练数据包并解压；把 `train.csv` 和 `train/` 放在任意数据目录。`train.csv` 含 `ID,Age,Sex,Class`（基线仅使用音频和类别，年龄、性别字段保留给其他方法），每个 `ID` 在 `train/phonationA/` 等八个目录各有一个 `<ID>_<任务名>.wav`。数据版权与授权按课程平台说明执行。盲测包稍后发布，只需将 `test.csv`、`test/` 按同样结构放置，无需标签。
-
-如使用本地课程准备好的数据，可把下列 `DATA_ROOT` 换成自己的路径：
+将下面三个值换成**你的**平台资源路径；数据挂载可以只读，`RUN_ROOT` 必须可写：
 
 ```bash
-DATA_ROOT=/path/to/course_track5_data
-python scripts/train.py \
-  --audio-root "$DATA_ROOT/train" \
-  --labels "$DATA_ROOT/train.csv" \
-  --output-dir runs/baseline
+export GPU_ID=0
+export DATA_ROOT=/path/to/mounted/track5_data
+export RUN_ROOT=/path/to/your-writable-workspace/track5
+mkdir -p "$RUN_ROOT"
+export TORCH_HOME="$RUN_ROOT/torch-cache"    # XLSR-53 预训练权重缓存
 ```
 
-训练脚本以固定随机种子对训练受试者作分层 80/20 划分，仅用其中 175 人拟合验证模型，在 44 人上计算准确率、五类 Macro-F1、各类别 F1 和混淆矩阵，然后使用全部 219 人训练最终模型。特征缓存、两个模型、验证预测和报告保存在 `runs/baseline/`。
+`CUDA_VISIBLE_DEVICES="$GPU_ID"` 会把所选 GPU 映射为程序内的 `cuda:0`，不需要改脚本；如果平台只分配 CPU，改用 `--device cpu` 并减小 batch size。
 
-## 基线验证成绩
+目录结构：
 
-在课程 219 人训练集的 44 人分层内部验证划分上，随机种子 42：
+```text
+$DATA_ROOT/
+  train.csv              # ID,Age,Sex,Class；全部有标签训练受试者
+  baseline_train.csv     # 固定基线拟合划分
+  validation.csv         # 固定公开验证划分
+  train/phonationA/S0001_phonationA.wav
+  train/phonationE/S0001_phonationE.wav
+  ...                    # 每人 8 条 WAV，另有 rhythmPA/TA/KA
+  test.csv               # 后续发布；无 Class 字段
+  test/phonationA/...    # 后续发布
+```
 
-| 指标 | 实测值 |
-|---|---:|
-| Accuracy | 0.4545 |
-| Macro-F1 | 0.4798 |
+数据按受试者划分；不要把同一名受试者的录音放入不同划分。受试者 ID 只用于定位录音与对齐结果，不是模型特征。
 
-这两个数字属于内部验证集，不是后期 53 人盲测集的成绩。可检查 `runs/baseline/validation_metrics.json` 中的每类 F1 与混淆矩阵。最终模型 `final_model.joblib` 使用全部 219 名训练受试者。
+## 准备 XLSR-53 并使用课程基线权重
 
-## 验证与盲测接口
-
-内部验证成绩由 `scripts/train.py` 自动生成。拿到无标签盲测包后运行：
+`models/final_model.joblib` 是本课程使用全部 219 名有标签训练受试者重训得到的最终基线，已包含在本仓库，不需要从原方法作者处下载。冻结的 XLSR-53 特征提取器另需 torchaudio 预训练权重（约 1.2 GB）；在可联网的平台运行：
 
 ```bash
-python scripts/infer.py \
+python scripts/prepare_xlsr.py --torch-home "$TORCH_HOME"
+```
+
+脚本通过 torchaudio 官方模型包下载到指定 PyTorch 缓存。若平台提供预缓存，可把 `TORCH_HOME` 指向该缓存；否则训练和推理首次运行也会自动下载。只加载可信来源的 `joblib` 权重文件。
+
+可用课程录音检查基线权重的推理流程：
+
+```bash
+CUDA_VISIBLE_DEVICES="$GPU_ID" python scripts/infer_hyb.py \
+  --audio-root "$DATA_ROOT/train" \
+  --metadata "$DATA_ROOT/validation.csv" \
+  --checkpoint models \
+  --features-cache "$RUN_ROOT/public_validation_features.pkl" \
+  --batch-size 4 --device cuda \
+  --output "$RUN_ROOT/public_validation_predictions.csv"
+```
+
+`final_model.joblib` 使用了全部 219 名训练受试者，其中包含公开验证划分，因此**不要将它在 `validation.csv` 上的分数作为课程基线成绩**。公平比较应使用下一节的固定 175/44 划分重训结果，或参考 [基线结果说明](BASELINE_RESULTS.md)。没有可用 GPU 时，把 `--device cuda` 改成 `--device cpu`，并将 `--batch-size` 调小。第一次提取特征最耗时；重复调用会读取 `--features-cache`。缓存只能用于同一份音频和同一组受试者，替换音频后请使用新的缓存路径。
+
+## 在课程训练集上重新训练
+
+```bash
+CUDA_VISIBLE_DEVICES="$GPU_ID" python scripts/train_hyb.py \
+  --audio-root "$DATA_ROOT/train" \
+  --metadata "$DATA_ROOT/train.csv" \
+  --baseline-train "$DATA_ROOT/baseline_train.csv" \
+  --validation "$DATA_ROOT/validation.csv" \
+  --output-dir "$RUN_ROOT/retrained" \
+  --batch-size 4 --device cuda --threads 4
+```
+
+脚本先用固定划分的训练受试者训练并在公开验证受试者上评估，再用全部有标签训练受试者训练最终模型。训练预处理包括训练集内 SMOTE、StandardScaler 和加权软投票集成；验证受试者不参与重采样或模型拟合。输出包括 `validation_model.joblib`、`validation_predictions.csv`、`validation_metrics.json` 和 `final_model.joblib`。首次运行会缓存全部训练音频的特征到 `train_features.pkl`，再次训练可复用；换数据时应删除旧缓存或指定新的输出目录。CPU 训练也可运行，但特征提取和集成训练会较慢。
+
+复现时请在报告中说明自己的训练配置。验证成绩请读取 `$RUN_ROOT/retrained/validation_metrics.json`，其中评估的是只使用 `baseline_train.csv` 拟合的验证模型；`final_model.joblib` 才使用全部 219 名训练受试者，不应用于报告公开验证分数。XLSR 特征提取使用所选 GPU；此脚本的 XGBoost 和 LightGBM 拟合在 CPU 上进行，`--threads` 控制其线程数。
+
+## 盲测接口
+
+课程发布无标签盲测包后，运行以下命令。盲测数据不需要 `Class` 字段，也不需要访问标签。
+
+```bash
+CUDA_VISIBLE_DEVICES="$GPU_ID" python scripts/infer_hyb.py \
   --audio-root "$DATA_ROOT/test" \
   --metadata "$DATA_ROOT/test.csv" \
-  --checkpoint runs/baseline/final_model.joblib \
-  --output runs/baseline/predictions.csv
+  --checkpoint models \
+  --features-cache "$RUN_ROOT/test_features.pkl" \
+  --batch-size 4 --device cuda \
+  --output "$RUN_ROOT/test_predictions.csv"
 python scripts/validate_submission.py \
   --metadata "$DATA_ROOT/test.csv" \
-  --predictions runs/baseline/predictions.csv
+  --predictions "$RUN_ROOT/test_predictions.csv"
 ```
 
-教师持有标签时，可用 `python scripts/evaluate.py --labels /private/labels.csv --predictions runs/baseline/predictions.csv --output runs/baseline/metrics.json` 计算受试者级指标。盲测阶段学生只需调用推理和格式检查脚本。
+若要使用自己重新训练的最终权重，将 `--checkpoint models` 改为 `--checkpoint "$RUN_ROOT/retrained/final_model.joblib"`。预测文件格式为 `ID,Class`，每名受试者恰好一行，类别为 1–5。`scripts/evaluate.py` 仅用于有标签的公开验证集；无标签盲测只运行推理和格式检查。
 
-## 文件与模型资源
+## 结果与效率
 
-`requirements.txt` 固定主要运行依赖；训练前不需要下载模型权重。仓库不收录原始音频、受试者映射和后期盲测标签。模型权重由上面的训练命令生成。
+请看 [基线结果说明](BASELINE_RESULTS.md) 和 [效率统计说明](EFFICIENCY.md)。公开验证成绩以相同划分、相同评测脚本的运行结果为准。报告中应记录 XLSR-53、三个分类器及全部预处理的版本与资源开销。
+
+改编实现的许可与署名见 [第三方许可](THIRD_PARTY_LICENSE.md)。课程数据、录音及任何隐藏标签均不随本仓库提供。

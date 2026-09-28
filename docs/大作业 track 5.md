@@ -63,8 +63,8 @@ $$
 音频文件名以受试者编号为前缀，例如：
 
 ~~~text
-phonationA/ID023_phonationA.wav
-rhythmTA/ID023_rhythmTA.wav
+phonationA/S0023_phonationA.wav
+rhythmTA/S0023_rhythmTA.wav
 ~~~
 
 训练和公开验证清单包含以下字段：
