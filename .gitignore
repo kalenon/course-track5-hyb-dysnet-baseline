@@ -4,3 +4,11 @@ checkpoints/
 *.joblib
 !models/*.joblib
 __pycache__/
+
+*.ckpt
+*.pth
+*.zip
+*.wav
+*.json
+*.csv
+*.pkl
